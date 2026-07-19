@@ -1,366 +1,161 @@
-# 🎯 Trackitnow v2.0
+# TrackitNow
 
-<div align="center">
+TrackitNow is a full-stack task and habit tracking app. Users complete tasks (fitness, learning, coding, health), and the backend turns that activity into streaks, points, badges, and a GitHub-style contribution graph. It also has a friend system with direct messaging.
 
-![Trackitnow Logo](https://img.shields.io/badge/Trackitnow-v2.0-blue?style=for-the-badge)
-[![Open Source](https://img.shields.io/badge/Open%20Source-❤️-green?style=for-the-badge)](https://github.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
+Live demo: https://trackitnow.vercel.app
 
-**A complete task tracking and habit building platform with Kaggle-style design**
+## Stack
 
-[Features](#-features) • [Demo](#-demo) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
+**Frontend:** React 18, TypeScript, Vite, React Router, Tailwind CSS, Chart.js (via react-chartjs-2), Framer Motion, Axios
 
----
+**Backend:** FastAPI (Python), SQLAlchemy ORM, PostgreSQL, JWT auth (python-jose), Argon2 password hashing (passlib), Cloudinary for image storage
 
-</div>
+The frontend and backend are two separate apps in one repo (`frontend/`, `backend/`), talking over a REST API. There is no server-side rendering or shared runtime — the frontend is a static SPA build, the backend is a stateless API process.
 
-## 📖 About
+## How it works
 
-Trackitnow is a **free and open source** full-stack task tracking and habit building platform designed to help you build consistent habits and track your progress over time. With a beautiful Kaggle-inspired interface, comprehensive analytics, and social features, Trackitnow makes productivity engaging and rewarding.
+### Auth
 
-### Built With
+Signup hashes the password with Argon2 and stores the user row. Signin checks the password and returns a JWT (`sub` = user id, 30 minute expiry) via the OAuth2 password flow. Every protected route depends on `get_current_user`, which decodes the token and loads the user from the database — there's no server-side session store, the token is the only state.
 
-<div align="center">
+### Tasks, sessions, and streaks
 
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://reactjs.org/)
-[![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Chart.js](https://img.shields.io/badge/Chart.js-4-FF6384?logo=chart.js&logoColor=white)](https://www.chartjs.org/)
-[![Cloudinary](https://img.shields.io/badge/Cloudinary-3448C5?logo=cloudinary&logoColor=white)](https://cloudinary.com/)
+Tasks are a single table shared by everyone. A task with `user_id = NULL` is a built-in default task; a task with a `user_id` set is a custom task created by that user. Whether a *specific* user has started or finished a task is tracked separately in `user_tasks`, so the same task can be `pending` for one user and `done` for another.
 
-</div>
+When a task is marked `done`, the API doesn't just flip a status flag — it also upserts a `sessions` row for that user and date, incrementing a `task_count`. The activity heatmap and the streak calculation are both derived from these session rows rather than from the tasks table directly: the streak walks backward day-by-day from today counting consecutive session dates, and the 12-month activity endpoint just returns a date → task_count map for the frontend to render as a grid.
 
-## ✨ Features
+### Points, badges, rank
 
-### 🎨 Beautiful UI/UX
-- **Kaggle-Style Profile** - Long profile cards with avatar, bio, social links, and stats
-- **Permanent Sidebar Navigation** - Clean, persistent sidebar with all features accessible
-- **Micro-animations** - Smooth, delightful interactions throughout the app
-- **Mobile Responsive** - Perfect experience on all devices and screen sizes
-- **Dark/Light Theme** - Coming soon!
+Points are computed on the fly as `completed_tasks * 10` rather than stored. Badges are a fixed list (bronze through diamond) matched against the earned badge types on the user; the response for each badge includes whether it's been earned. Rank in the profile response is currently a static value, and weekly goals are a placeholder list — both are stubbed pending a real leaderboard and goals system.
 
-### 📊 Tracking & Analytics
-- **12-Month Contribution Grid** - GitHub-style activity heatmap
-- **Session Tracking** - Every task completion recorded and visualized
-- **Chart.js Integration** - Professional charts for progress visualization
-- **Custom Goals** - Set and track your personal weekly goals
-- **Badge System** - Earn badges for achievements and milestones
+### Friends and chat
 
-### ✅ Task Management
-- **Pre-built Tasks** - Curated fitness, learning, and productivity tasks
-- **Custom Tasks** - Create your own tasks with custom icons and descriptions
-- **Difficulty Levels** - Beginner, intermediate, and advanced challenges
-- **Task Categories** - Organize by fitness, learning, mindfulness, and more
-- **Progress Streaks** - Build and maintain daily streaks
+Friendship is one row per pair with a `status` of `pending` or `accepted`; there's no separate "requests" table, a pending friendship *is* the request. Chat reuses this: a chat's identity is the friendship id, and messages between two users are queried directly by sender/receiver pair rather than through a chat/thread table. Marking a chat as read is a bulk update on unread messages from that friend.
 
-### 👥 Social Features
-- **Friend System** - Connect with friends and see their progress
-- **Real-time Chat** - Message your friends directly in the app
-- **Profile Sharing** - Share your achievements on social media
-- **Public Profiles** - Showcase your stats, bio, and social links
+### Images
 
-### 🔒 Security & Privacy
-- **JWT Authentication** - Secure token-based authentication
-- **Password Hashing** - Bcrypt encryption for password storage
-- **CORS Protection** - Configured for security
-- **Input Sanitization** - Protection against XSS and SQL injection
+Profile photo uploads go straight to Cloudinary from the backend (not stored locally or in Postgres); the returned secure URL is saved on the user row.
 
-## 🚀 Quick Start
+## Project structure
 
-### Prerequisites
-
-Before you begin, ensure you have the following installed:
-- **Python 3.9+**
-- **Node.js 18+**
-- **PostgreSQL** (or a Supabase account)
-- **Cloudinary account** (free tier works great)
-
-### Installation
-
-#### 1. Clone the Repository
-
-```bash
-git clone https://github.com/yourusername/trackitnow.git
-cd trackitnow
+```
+TrackitNow/
+├── backend/
+│   ├── main.py          # FastAPI app: all routes, auth, business logic
+│   ├── models.py        # SQLAlchemy models (User, Task, UserTask, Friendship, Message, Session, UserBadge)
+│   ├── schemas.py        # Pydantic request/response schemas
+│   ├── database.py       # Engine, session factory, DATABASE_URL config
+│   └── requirements.txt
+│
+└── frontend/
+    ├── src/
+    │   ├── components/
+    │   ├── pages/
+    │   ├── services/      # Axios API client
+    │   ├── types/
+    │   └── utils/
+    ├── package.json
+    └── vite.config.ts
 ```
 
-#### 2. Backend Setup
+## Data model
+
+| Table | Purpose |
+|---|---|
+| `users` | Account, profile fields, social links |
+| `tasks` | Default tasks (`user_id` null) and custom tasks (`user_id` set) |
+| `user_tasks` | Per-user status of a task: pending, progress, done |
+| `sessions` | One row per user per active day, with a completed-task count |
+| `friendships` | One row per pair; status is pending or accepted |
+| `messages` | Direct messages between two users |
+| `user_badges` | Badges a user has earned |
+
+## API
+
+```
+Auth
+POST   /api/auth/signup
+POST   /api/auth/signin
+POST   /api/auth/signout
+
+Profile
+GET    /api/user/profile
+PUT    /api/user/profile
+POST   /api/user/profile/photo
+DELETE /api/user/account
+
+Tasks
+GET    /api/tasks
+POST   /api/tasks
+PUT    /api/tasks/:id/status
+
+Friends
+GET    /api/friends
+GET    /api/friends/search
+POST   /api/friends/request
+GET    /api/friends/requests
+PUT    /api/friends/requests/:id/accept
+PUT    /api/friends/requests/:id/decline
+
+Chat
+GET    /api/chats
+GET    /api/chats/:id/messages
+POST   /api/chats/:id/messages
+PUT    /api/chats/:id/read
+
+Progress
+GET    /api/progress/activity
+GET    /api/progress/badges
+GET    /api/progress/goals
+```
+
+Interactive docs once the backend is running: `http://localhost:8000/docs`
+
+## Setup
+
+### Requirements
+
+- Python 3.9+
+- Node.js 18+
+- PostgreSQL (or a Supabase project)
+- Cloudinary account (free tier is enough)
+
+### Backend
 
 ```bash
-# Navigate to backend directory
 cd backend
-
-# Create and activate virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate     # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your credentials
-```
-
-**Backend .env configuration:**
-```env
-DATABASE_URL=postgresql://user:password@host:port/database
-SECRET_KEY=your-secret-key-here
-CLOUDINARY_CLOUD_NAME=your-cloud-name
-CLOUDINARY_API_KEY=your-api-key
-CLOUDINARY_API_SECRET=your-api-secret
-```
-
-```bash
-# Start the backend server
+cp .env.example .env         # fill in DATABASE_URL, SECRET_KEY, CLOUDINARY_*
 python main.py
 ```
 
-Backend runs at `http://localhost:8000` 🎉
+Tables are created automatically on startup via `models.Base.metadata.create_all`. The API runs at `http://localhost:8000`.
 
-#### 3. Frontend Setup
+### Frontend
 
 ```bash
-# Open new terminal and navigate to frontend
 cd frontend
-
-# Install dependencies
 npm install
-
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your API URL
-```
-
-**Frontend .env configuration:**
-```env
-VITE_API_URL=http://localhost:8000/api
-VITE_CLOUDINARY_CLOUD_NAME=your-cloud-name
-VITE_CLOUDINARY_UPLOAD_PRESET=your-upload-preset
-```
-
-```bash
-# Start the development server
+cp .env.example .env         # set VITE_API_URL and Cloudinary vars
 npm run dev
 ```
 
-Frontend runs at `http://localhost:5173` 🚀
+Runs at `http://localhost:5173`.
 
-## 📁 Project Structure
+## Known limitations
 
-```
-trackitnow/
-├── backend/                    # FastAPI Python backend
-│   ├── main.py                # Main API file with all routes
-│   ├── models.py              # SQLAlchemy database models
-│   ├── schemas.py             # Pydantic validation schemas
-│   ├── database.py            # Database configuration
-│   ├── requirements.txt       # Python dependencies
-│   └── .env.example           # Environment template
-│
-└── frontend/                  # React + Vite frontend
-    ├── src/
-    │   ├── components/        # Reusable UI components
-    │   ├── pages/            # Page components
-    │   ├── services/         # API service layer
-    │   ├── types/            # TypeScript definitions
-    │   └── utils/            # Helper functions
-    ├── package.json
-    └── .env.example
-```
+- Leaderboard rank is hardcoded rather than computed from real user data.
+- Weekly goals are placeholder data, not backed by a table yet.
+- Chat is functional but rough — message delivery isn't real-time (no websockets), it's poll/fetch based.
+- No automated test suite yet.
 
-## 🗄️ Database Setup
+## Deployment
 
-### Option 1: Supabase (Recommended)
+- Frontend: Vercel (`vercel --prod`) or any static host after `npm run build`.
+- Backend: any host that can run a long-lived FastAPI/uvicorn process (Railway, Render, etc.), pointed at a Postgres instance.
 
-1. Create a free account at [supabase.com](https://supabase.com)
-2. Create a new project
-3. Copy the database URL from Settings → Database
-4. Add it to your backend `.env` file
-5. Tables will be created automatically on first run!
+## License
 
-### Option 2: Local PostgreSQL
-
-1. Install PostgreSQL locally
-2. Create a database: `createdb trackitnow`
-3. Update `DATABASE_URL` in `.env`
-4. Tables will be created automatically
-
-## 📚 API Documentation
-
-Once your backend is running, explore the interactive API docs:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Key Endpoints
-
-```
-Authentication
-POST   /api/auth/signup          Create new account
-POST   /api/auth/signin          User login
-POST   /api/auth/signout         User logout
-
-User Profile
-GET    /api/user/profile         Get profile with stats
-PUT    /api/user/profile         Update profile info
-POST   /api/user/profile/photo   Upload profile photo
-DELETE /api/user/account         Delete account
-
-Tasks
-GET    /api/tasks                Get all available tasks
-POST   /api/tasks                Create custom task
-PUT    /api/tasks/:id/status     Update task status
-
-Friends
-GET    /api/friends              Get friends list
-POST   /api/friends/request      Send friend request
-GET    /api/friends/requests     Get pending requests
-PUT    /api/friends/requests/:id/accept    Accept request
-PUT    /api/friends/requests/:id/decline   Decline request
-
-Chat
-GET    /api/chats                Get all conversations
-GET    /api/chats/:id/messages   Get chat messages
-POST   /api/chats/:id/messages   Send message
-PUT    /api/chats/:id/read       Mark chat as read
-
-Progress
-GET    /api/progress/activity    Get 12-month activity data
-GET    /api/progress/badges      Get earned badges
-GET    /api/progress/goals       Get weekly goals
-```
-
-## 🌐 Deployment
-
-### Backend Deployment
-
-#### Railway (Recommended)
-1. Push your code to GitHub
-2. Create new project on [Railway](https://railway.app)
-3. Connect your repository
-4. Add environment variables from `.env`
-5. Deploy! 🚀
-
-#### Render
-1. Create a new Web Service on [Render](https://render.com)
-2. Connect your repository
-3. Build command: `pip install -r requirements.txt`
-4. Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-5. Add environment variables
-
-### Frontend Deployment
-
-#### Vercel (Recommended)
-```bash
-npm install -g vercel
-vercel --prod
-```
-
-#### Netlify
-```bash
-npm run build
-# Drag and drop the dist/ folder to Netlify
-```
-
-## 🧪 Testing
-
-```bash
-# Backend tests
-cd backend
-pytest
-
-# Frontend tests
-cd frontend
-npm run test
-```
-
-## 🤝 Contributing
-
-We love contributions! Trackitnow is **open source** and welcomes improvements from the community.
-
-### How to Contribute
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/AmazingFeature`)
-3. **Commit** your changes (`git commit -m 'Add some AmazingFeature'`)
-4. **Push** to the branch (`git push origin feature/AmazingFeature`)
-5. **Open** a Pull Request
-
-### Contribution Ideas
-
-- 🐛 Fix bugs
-- ✨ Add new features
-- 📝 Improve documentation
-- 🎨 Enhance UI/UX
-- 🧪 Add tests
-- 🌍 Add translations
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and development process.
-
-## 📋 Roadmap
-
-- [ ] Dark mode support
-- [ ] Mobile apps (React Native)
-- [ ] Team workspaces
-- [ ] Advanced analytics dashboard
-- [ ] Integration with fitness trackers
-- [ ] AI-powered habit suggestions
-- [ ] Gamification enhancements
-- [ ] Export data feature
-
-## 🐛 Bug Reports
-
-Found a bug? Please [open an issue](https://github.com/yourusername/trackitnow/issues) with:
-- Clear bug description
-- Steps to reproduce
-- Expected vs actual behavior
-- Screenshots (if applicable)
-- Your environment details
-
-## 💬 Community & Support
-
-- **Discord**: [Join our community](https://discord.gg/trackitnow)
-- **Twitter**: [@trackitnow](https://twitter.com/trackitnow)
-- **Email**: support@trackitnow.com
-
-## 📄 License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-This means you can:
-- ✅ Use it commercially
-- ✅ Modify it
-- ✅ Distribute it
-- ✅ Use it privately
-
-## 🙏 Acknowledgments
-
-- Design inspiration from [Kaggle](https://www.kaggle.com)
-- Icons by [Lucide React](https://lucide.dev)
-- Charts by [Chart.js](https://www.chartjs.org)
-- Image storage by [Cloudinary](https://cloudinary.com)
-- Authentication guidance from [FastAPI docs](https://fastapi.tiangolo.com)
-
-## ⭐ Show Your Support
-
-If you find Trackitnow useful, please consider:
-- ⭐ Starring the repository
-- 🐛 Reporting bugs
-- 💡 Suggesting features
-- 🤝 Contributing code
-- 📢 Sharing with friends
-
----
-
-<div align="center">
-
-**Built with ❤️ by the open source community**
-
-[Report Bug](https://github.com/yourusername/trackitnow/issues) • [Request Feature](https://github.com/yourusername/trackitnow/issues) • [Documentation](https://docs.trackitnow.com)
-
-**Made with ❤️ using React • FastAPI • PostgreSQL • Cloudinary**
-
-</div>
+MIT
